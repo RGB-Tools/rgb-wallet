@@ -334,8 +334,6 @@ dependencies = [
 [[package]]
 name = "commit_encoding_derive"
 version = "0.10.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "00033f14d67c4169d588f085ea2faeb7b610cf03a74d42ea09eeba31abef2047"
 dependencies = [
  "amplify",
  "amplify_syn",
@@ -347,8 +345,6 @@ dependencies = [
 [[package]]
 name = "commit_verify"
 version = "0.10.4"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "1459c7274450984c0f2dbe89a250817f2275c02001b1cf3da4a6e8e74bc56421"
 dependencies = [
  "amplify",
  "commit_encoding_derive",

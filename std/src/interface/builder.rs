@@ -19,7 +19,7 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use std::collections::HashMap;
+use std::collections::{HashMap, BTreeMap};
 
 use amplify::confinement::{Confined, TinyOrdMap, U16, U8};
 use amplify::{confinement, Wrapper};
@@ -28,11 +28,12 @@ use bp::Chain;
 use rgb::{
     Assign, AssignmentType, Assignments, ContractId, ExposedSeal, FungibleType, Genesis,
     GenesisSeal, GlobalState, GraphSeal, Input, Inputs, Opout, RevealedData, RevealedValue,
-    StateSchema, SubSchema, Transition, TransitionType, TypedAssigns, BLANK_TRANSITION_ID,
+    StateSchema, SubSchema, Transition, TransitionType, TypedAssigns, BLANK_TRANSITION_ID, BlindingFactor,
 };
 use strict_encoding::{FieldName, SerializeError, StrictSerialize, TypeName};
 use strict_types::decode;
 
+use crate::amplify::hex::FromHex;
 use crate::containers::{BuilderSeal, Contract};
 use crate::interface::{Iface, IfaceImpl, IfacePair, TransitionIface, TypedState};
 
@@ -338,6 +339,16 @@ impl TransitionBuilder {
         Ok(self)
     }
 
+    pub fn add_raw_state_static(
+        mut self,
+        type_id: AssignmentType,
+        seal: impl Into<BuilderSeal<GraphSeal>>,
+        state: TypedState,
+    ) -> Result<Self, BuilderError> {
+        self.builder = self.builder.add_raw_state_static(type_id, seal, state)?;
+        Ok(self)
+    }
+
     pub fn complete_transition(self, contract_id: ContractId) -> Result<Transition, BuilderError> {
         let (_, _, global, assignments) = self.builder.complete();
 
@@ -368,7 +379,7 @@ struct OperationBuilder<Seal: ExposedSeal> {
     global: GlobalState,
     // rights: TinyOrdMap<AssignmentType, Confined<HashSet<BuilderSeal<Seal>>, 1, U8>>,
     fungible:
-        TinyOrdMap<AssignmentType, Confined<HashMap<BuilderSeal<Seal>, RevealedValue>, 1, U8>>,
+        TinyOrdMap<AssignmentType, Confined<BTreeMap<BuilderSeal<Seal>, RevealedValue>, 1, U8>>,
     data: TinyOrdMap<AssignmentType, Confined<HashMap<BuilderSeal<Seal>, RevealedData>, 1, U8>>,
     // TODO: add attachments
     // TODO: add valencies
@@ -481,6 +492,49 @@ impl<Seal: ExposedSeal> OperationBuilder<Seal> {
                 } else {
                     return Err(BuilderError::InvalidState(type_id));
                 }
+            }
+            TypedState::Attachment(_) => {
+                todo!()
+            }
+        }
+        Ok(self)
+    }
+
+    pub fn add_raw_state_static(
+        mut self,
+        type_id: AssignmentType,
+        seal: impl Into<BuilderSeal<Seal>>,
+        state: TypedState,
+    ) -> Result<Self, BuilderError> {
+        match state {
+            TypedState::Void => {
+                todo!()
+            }
+            TypedState::Amount(value) => {
+                let mut state = RevealedValue::new(value, &mut thread_rng());
+                let res = BlindingFactor::from_hex("00112233445566778899aabbccddeeff00112233445566778899aabbccddeeff");
+                state.blinding = res.unwrap();
+
+                let state_schema =
+                    self.schema.owned_types.get(&type_id).expect(
+                        "schema should match interface: must be checked by the constructor",
+                    );
+                if *state_schema != StateSchema::Fungible(FungibleType::Unsigned64Bit) {
+                    return Err(BuilderError::InvalidState(type_id));
+                }
+
+                match self.fungible.get_mut(&type_id) {
+                    Some(assignments) => {
+                        assignments.insert(seal.into(), state)?;
+                    }
+                    None => {
+                        self.fungible
+                            .insert(type_id, Confined::with((seal.into(), state)))?;
+                    }
+                }
+            }
+            TypedState::Data(_) => {
+                todo!()
             }
             TypedState::Attachment(_) => {
                 todo!()
