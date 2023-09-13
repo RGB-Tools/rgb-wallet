@@ -76,3 +76,6 @@ wasm-bindgen-test = "0.3"
 
 [package.metadata.docs.rs]
 features = [ "all" ]
+
+[patch.crates-io]
+commit_verify = { path = "../client_side_validation/commit_verify" }
