@@ -1189,3 +1189,7 @@ checksum = "037711d82167854aff2018dfd193aa0fef5370f456732f0d5a0c59b0f1b4b907"
 dependencies = [
  "memchr",
 ]
+
+[[patch.unused]]
+name = "commit_verify"
+version = "0.10.5"

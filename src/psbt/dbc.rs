@@ -30,7 +30,7 @@ use bp::dbc::tapret::{TapretCommitment, TapretPathProof, TapretProof};
 use bp::dbc::Proof;
 use bp::seals::txout::CloseMethod;
 use bp::TapScript;
-use commit_verify::{mpc, CommitVerify, CommitmentId, TryCommitVerify};
+use commit_verify::{mpc, CommitVerify, CommitmentId, TryCommitVerify, TryCommitVerifyStatic};
 use rgb::Anchor;
 
 use crate::psbt::lnpbp4::OutputLnpbp4;
@@ -82,6 +82,11 @@ pub trait PsbtDbc {
         &mut self,
         method: CloseMethod,
     ) -> Result<Anchor<mpc::MerkleBlock>, DbcPsbtError>;
+
+    fn dbc_conclude_static(
+        &mut self,
+        method: CloseMethod,
+    ) -> Result<Anchor<mpc::MerkleBlock>, DbcPsbtError>;
 }
 
 impl PsbtDbc for Psbt {
@@ -121,6 +126,88 @@ impl PsbtDbc for Psbt {
             messages,
         };
         let merkle_tree = mpc::MerkleTree::try_commit(&source)?;
+        let entropy = merkle_tree.entropy();
+        output.set_lnpbp4_entropy(entropy)?;
+        let commitment = merkle_tree.commitment_id();
+
+        // 2. Depending on the method modify output which is necessary to modify
+        // TODO: support non-empty tap trees
+        let proof = if method == CloseMethod::TapretFirst {
+            if output.tap_tree.is_some() {
+                return Err(DbcPsbtError::TapTreeNonEmpty);
+            }
+            let tapret_commitment = &TapretCommitment::with(commitment, 0);
+            let script_commitment =
+                ScriptBuf::from_bytes(TapScript::commit(tapret_commitment).to_vec());
+            let builder = TaprootBuilder::with_capacity(1).add_leaf(0, script_commitment)?;
+            let tap_tree = TapTree::try_from(builder.clone()).expect("builder is complete");
+            let internal_pk = output.tap_internal_key.ok_or(DbcPsbtError::NoInternalKey)?;
+            let tapret_proof = TapretProof {
+                path_proof: TapretPathProof::root(tapret_commitment.nonce),
+                internal_pk: internal_pk.into(),
+            };
+            output.tap_tree = Some(tap_tree);
+            let spent_info = builder
+                .finalize(SECP256K1, internal_pk)
+                .expect("complete tree");
+            let merkle_root = spent_info.merkle_root().expect("script tree present");
+
+            output.set_tapret_commitment(commitment, &tapret_proof.path_proof)?;
+            txout.script_pubkey = ScriptBuf::new_v1_p2tr(SECP256K1, internal_pk, Some(merkle_root));
+            Proof::TapretFirst(tapret_proof)
+        } else if method == CloseMethod::OpretFirst {
+            output.set_opret_commitment(commitment)?;
+            txout.script_pubkey = ScriptBuf::new_op_return(&commitment.to_byte_array());
+            Proof::OpretFirst
+        } else {
+            return Err(DbcPsbtError::MethodUnsupported(method));
+        };
+
+        let anchor = Anchor {
+            txid: self.unsigned_tx.txid().to_byte_array().into(),
+            mpc_proof: mpc::MerkleBlock::from(merkle_tree),
+            dbc_proof: proof,
+        };
+
+        Ok(anchor)
+    }
+
+    fn dbc_conclude_static(
+        &mut self,
+        method: CloseMethod,
+    ) -> Result<Anchor<mpc::MerkleBlock>, DbcPsbtError> {
+        if self
+            .outputs
+            .iter()
+            .filter(|output| output.is_tapret_host() | output.is_opret_host())
+            .count() >
+            1
+        {
+            return Err(DbcPsbtError::MultipleCommitmentHosts);
+        }
+
+        let (vout, output) = self
+            .outputs
+            .iter_mut()
+            .enumerate()
+            .find(|(_, output)| {
+                (output.is_tapret_host() && method == CloseMethod::TapretFirst) |
+                    (output.is_opret_host() && method == CloseMethod::OpretFirst)
+            })
+            .ok_or(DbcPsbtError::NoHostOutput)?;
+        let txout = &mut self.unsigned_tx.output[vout];
+
+        let messages = output.lnpbp4_message_map()?;
+        let min_depth = u5::with(
+            output
+                .lnpbp4_min_tree_depth()
+                .unwrap_or(PSBT_OUT_LNPBP4_MIN_TREE_DEPTH),
+        );
+        let source = mpc::MultiSource {
+            min_depth,
+            messages,
+        };
+        let merkle_tree = mpc::MerkleTree::try_commit_static(&source)?;
         let entropy = merkle_tree.entropy();
         output.set_lnpbp4_entropy(entropy)?;
         let commitment = merkle_tree.commitment_id();
