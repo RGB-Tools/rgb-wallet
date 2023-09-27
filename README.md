@@ -72,11 +72,12 @@ See [LICENCE](LICENSE) file.
 [LNPBPs]: https://github.com/LNP-BP/LNPBPs
 [Association]: https://lnp-bp.org
 [Blueprint]: https://rgb.network
-[FAQ]: https://rgbfaq.com
+[FAQ]: https://www.rgbfaq.com
 [Foundation]: https://github.com/LNP-BP/client_side_validation
 [BP]: https://github.com/BP-WG/bp-core
 [RGB Std]: https://github.com/RGB-WG/rgb-std
 [RGB Node]: https://github.com/RGB-WG/rgb-node
 [Max]: https://github.com/dr-orlovsky
+[MyCitadel Node]: https://github.com/mycitadel/mycitadel-node
 [Todd]: https://petertodd.org/
 [Zucco]: https://giacomozucco.com/
